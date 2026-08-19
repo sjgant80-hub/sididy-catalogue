@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>a oracle·notes·vault·receipts workshop</title>
+<style>
+body{font-family:Georgia,serif;background:#0b0a0f;color:#d8d2c4;max-width:640px;margin:0 auto;padding:24px 18px;line-height:1.5}
+h1{font-size:1.3rem;color:#d4a017}h2{font-size:1.05rem;color:#d4a017;margin-top:1.6rem}
+textarea,input{width:100%;background:#141218;color:#d8d2c4;border:1px solid #3a3630;border-radius:6px;padding:8px;font:inherit;box-sizing:border-box}
+button{background:#d4a017;color:#0b0a0f;border:0;border-radius:6px;padding:8px 14px;font:inherit;cursor:pointer;margin:8px 0}
+.quiet{opacity:.6;font-size:.9em}footer{margin-top:2.2rem;padding-top:1rem;border-top:1px solid #3a3630;font-size:.8em;opacity:.65}
+</style></head><body>
+<h1>a oracle·notes·vault·receipts workshop</h1>
+<p class="quiet">A sovereign single-file build: it runs from this one file, works offline, and sends nothing anywhere.</p>
+<section id="org-oracle"><h2>the oracle</h2>
+<p class="quiet">Type a real decision. It looks for signals it can name and ranks a few honest stances — with no signal it says so and ranks by stated defaults.</p>
+<textarea id="oq" rows="3" placeholder="should I …"></textarea>
+<button id="ogo" type="button">think it through</button>
+<div id="oout"></div></section>
+<section id="org-notes"><h2>notes that stay</h2>
+<p class="quiet">Everything typed here is saved on this machine, in this browser, and nowhere else.</p>
+<textarea id="nb" rows="6" placeholder="write \u2014 it keeps"></textarea>
+<div id="nstat" class="quiet"></div></section>
+<section id="org-vault"><h2>the vault</h2>
+<p class="quiet">One note, locked with AES-GCM on this machine. The password never leaves the field, is never stored, and there is no reset — that is the point.</p>
+<input id="vpw" type="password" placeholder="password (there is no reset)">
+<textarea id="vtext" rows="4" placeholder="what goes in the vault"></textarea>
+<button id="vlock" type="button">lock it</button>
+<button id="vopen" type="button">open it</button>
+<div id="vstat" class="quiet"></div></section>
+<section id="org-receipts"><h2>the receipts</h2>
+<p class="quiet">Proof-of-play as a checklist: nothing gets ticked on your say-so — a box only checks when you write down what proves it.</p>
+<input id="rnew" placeholder="a thing to do">
+<button id="radd" type="button">add it</button>
+<div id="rlist"></div></section>
+<footer>composed in the Forge Studio · powered by fall·os · Konomi Architecture</footer>
+<script>
+(() => {
+  const CUES = [
+    ['reversible', ['undo', 'reversible', 'try', 'experiment', 'temporary']],
+    ['irreversible', ['permanent', 'forever', 'cannot undo', 'irreversible', 'sell', 'quit', 'sign']],
+    ['cost', ['cost', 'price', 'expensive', 'cheap', 'money', 'afford']],
+    ['deadline', ['deadline', 'by monday', 'urgent', 'soon', 'today', 'this week']],
+    ['people', ['family', 'team', 'partner', 'boss', 'kids', 'wife', 'husband', 'friend']],
+    ['unknown', ['maybe', 'not sure', 'unsure', 'unknown', 'depends', '?']],
+  ];
+  const STANCES = [
+    { n: 'Start with the smallest step you can undo', p: 0.64, w: ['reversible', 'unknown'], a: ['irreversible'] },
+    { n: 'Verify before you commit', p: 0.62, w: ['irreversible', 'cost'], a: ['reversible'] },
+    { n: 'Talk to whoever it lands on', p: 0.48, w: ['people', 'irreversible'], a: [] },
+    { n: 'Set a stop rule before you start', p: 0.52, w: ['cost', 'unknown'], a: [] },
+    { n: 'Do nothing \u2014 waiting is cheap here', p: 0.40, w: ['unknown', 'reversible'], a: ['deadline'] },
+  ];
+  document.getElementById('ogo').addEventListener('click', () => {
+    const s = document.getElementById('oq').value.toLowerCase();
+    const found = CUES.filter(([, ws]) => ws.some(w => s.includes(w))).map(([id]) => id);
+    const ranked = STANCES.map(st => ({
+      ...st,
+      score: Math.max(0, Math.min(1, st.p + st.w.filter(x => found.includes(x)).length * 0.12 - st.a.filter(x => found.includes(x)).length * 0.15)),
+    })).sort((x, y) => y.score - x.score);
+    const out = document.getElementById('oout');
+    out.innerHTML = (found.length ? '<p>signals: <b>' + found.join(', ') + '</b></p>'
+      : '<p class="quiet">no signals found \u2014 ranked by stated defaults only; say more about what is at stake</p>')
+      + ranked.slice(0, 3).map(r => '<p><b>' + r.n + '</b> \u00b7 ' + r.score.toFixed(2) + '</p>').join('');
+  });
+})();
+(() => {
+  const K = 'studio-notes';
+  const nb = document.getElementById('nb'), st = document.getElementById('nstat');
+  try { nb.value = localStorage.getItem(K) || ''; } catch {}
+  nb.addEventListener('input', () => {
+    try { localStorage.setItem(K, nb.value); st.textContent = 'kept \u00b7 ' + nb.value.length + ' characters, on your machine'; }
+    catch { st.textContent = 'private mode \u2014 nothing persists, and that is your call'; }
+  });
+})();
+(() => {
+  // the konomium-vault pattern, trimmed: PBKDF2 (100k, SHA-256) -> AES-GCM, salt+iv ride with the box
+  const K = 'studio-vault';
+  const st = document.getElementById('vstat');
+  const enc2 = new TextEncoder(), dec2 = new TextDecoder();
+  const b64v = (u) => btoa(String.fromCharCode(...u));
+  const unb64v = (x) => Uint8Array.from(atob(x), c => c.charCodeAt(0));
+  async function keyFrom(pw, salt) {
+    const base = await crypto.subtle.importKey('raw', enc2.encode(pw), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  document.getElementById('vlock').addEventListener('click', async () => {
+    const pw = document.getElementById('vpw').value;
+    if (!pw) { st.textContent = 'a vault with no password is a box with no lid'; return; }
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await keyFrom(pw, salt);
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc2.encode(document.getElementById('vtext').value)));
+    try { localStorage.setItem(K, JSON.stringify({ s: b64v(salt), i: b64v(iv), c: b64v(ct) })); st.textContent = 'locked · ' + ct.length + ' encrypted bytes on this machine — only the password opens it'; }
+    catch { st.textContent = 'no storage here (sealed preview or private mode) — the lock worked, the keeping did not'; }
+    document.getElementById('vtext').value = '';
+  });
+  document.getElementById('vopen').addEventListener('click', async () => {
+    let box = null;
+    try { box = JSON.parse(localStorage.getItem(K) || 'null'); } catch {}
+    if (!box) { st.textContent = 'nothing locked yet'; return; }
+    try {
+      const key = await keyFrom(document.getElementById('vpw').value, unb64v(box.s));
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64v(box.i) }, key, unb64v(box.c));
+      document.getElementById('vtext').value = dec2.decode(pt);
+      st.textContent = 'open — the password fit';
+    } catch { st.textContent = 'that password does not open this vault — and nothing can'; }
+  });
+})();
+(() => {
+  const K = 'studio-receipts';
+  const load2 = () => { try { return JSON.parse(localStorage.getItem(K) || '[]'); } catch { return []; } };
+  const keep = (items) => { try { localStorage.setItem(K, JSON.stringify(items)); } catch {} };
+  const escR = (x) => String(x).replace(/[<>&]/g, '');
+  function show() {
+    const items = load2();
+    document.getElementById('rlist').innerHTML = items.map((it, i) =>
+      '<p>' + (it.proof ? '✓ <b>' + escR(it.name) + '</b> <span class="quiet">— proven by: ' + escR(it.proof) + '</span>'
+        : '○ <b>' + escR(it.name) + '</b> <button data-i="' + i + '" class="rprove" type="button">it is done — prove it</button>') + '</p>'
+    ).join('') || '<p class="quiet">nothing listed — and an empty list is honestly empty</p>';
+    for (const btn of document.querySelectorAll('.rprove')) btn.addEventListener('click', () => {
+      const why = prompt('What proves it? (a file, a number, a thing someone can check)');
+      if (!why || !why.trim()) { alert('no evidence, no tick — that is the whole point'); return; }
+      const items2 = load2(); items2[Number(btn.dataset.i)].proof = why.trim(); keep(items2); show();
+    });
+  }
+  document.getElementById('radd').addEventListener('click', () => {
+    const name = document.getElementById('rnew').value.trim();
+    if (!name) return;
+    const items = load2(); items.push({ name: name.slice(0, 80), proof: null }); keep(items);
+    document.getElementById('rnew').value = ''; show();
+  });
+  show();
+})();
+</script>
+</body></html>
