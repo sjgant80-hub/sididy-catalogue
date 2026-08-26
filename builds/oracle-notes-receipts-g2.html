@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>oracle-notes-receipts, second generation — grown</title>
+<style>
+body{font-family:Georgia,serif;background:#0b0a0f;color:#d8d2c4;max-width:640px;margin:0 auto;padding:24px 18px;line-height:1.5}
+h1{font-size:1.3rem;color:#d4a017}h2{font-size:1.05rem;color:#d4a017;margin-top:1.6rem}
+textarea,input{width:100%;background:#141218;color:#d8d2c4;border:1px solid #3a3630;border-radius:6px;padding:8px;font:inherit;box-sizing:border-box}
+button{background:#d4a017;color:#0b0a0f;border:0;border-radius:6px;padding:8px 14px;font:inherit;cursor:pointer;margin:8px 0}
+.quiet{opacity:.6;font-size:.9em}footer{margin-top:2.2rem;padding-top:1rem;border-top:1px solid #3a3630;font-size:.8em;opacity:.65}
+</style></head><body>
+<h1>oracle-notes-receipts, second generation — grown</h1>
+<p class="quiet">A sovereign single-file build: it runs from this one file, works offline, and sends nothing anywhere.</p>
+<section id="org-oracle"><h2>the oracle</h2>
+<p class="quiet">Type a real decision. It looks for signals it can name and ranks a few honest stances — with no signal it says so and ranks by stated defaults.</p>
+<textarea id="oq" rows="3" placeholder="should I …"></textarea>
+<button id="ogo" type="button">think it through</button>
+<div id="oout"></div></section>
+<section id="org-notes"><h2>notes that stay</h2>
+<p class="quiet">Everything typed here is saved on this machine, in this browser, and nowhere else.</p>
+<textarea id="nb" rows="6" placeholder="write \u2014 it keeps"></textarea>
+<div id="nstat" class="quiet"></div></section>
+<section id="org-receipts"><h2>the receipts</h2>
+<p class="quiet">Proof-of-play as a checklist: nothing gets ticked on your say-so — a box only checks when you write down what proves it.</p>
+<input id="rnew" placeholder="a thing to do">
+<button id="radd" type="button">add it</button>
+<div id="rlist"></div></section>
+<section id="org-fold"><h2>the fold</h2>
+<p class="quiet">A crease-pattern glyph — golden-angle ring, mountain and valley alternating, and the center stays a hole the whole way: a twist fold has no apex. Drag it between flat and folded.</p>
+<canvas id="fcv" width="280" height="280" style="display:block;margin:6px auto;border:1px solid #3a3630;border-radius:8px"></canvas>
+<input id="ft" type="range" min="0" max="1" step="0.005" value="0" style="width:100%">
+<div id="fread" class="quiet" style="text-align:center"></div></section>
+<footer>composed in the Forge Studio · powered by fall·os · Konomi Architecture</footer>
+<script>
+(() => {
+  const CUES = [
+    ['reversible', ['undo', 'reversible', 'try', 'experiment', 'temporary']],
+    ['irreversible', ['permanent', 'forever', 'cannot undo', 'irreversible', 'sell', 'quit', 'sign']],
+    ['cost', ['cost', 'price', 'expensive', 'cheap', 'money', 'afford']],
+    ['deadline', ['deadline', 'by monday', 'urgent', 'soon', 'today', 'this week']],
+    ['people', ['family', 'team', 'partner', 'boss', 'kids', 'wife', 'husband', 'friend']],
+    ['unknown', ['maybe', 'not sure', 'unsure', 'unknown', 'depends', '?']],
+  ];
+  const STANCES = [
+    { n: 'Start with the smallest step you can undo', p: 0.64, w: ['reversible', 'unknown'], a: ['irreversible'] },
+    { n: 'Verify before you commit', p: 0.62, w: ['irreversible', 'cost'], a: ['reversible'] },
+    { n: 'Talk to whoever it lands on', p: 0.48, w: ['people', 'irreversible'], a: [] },
+    { n: 'Set a stop rule before you start', p: 0.52, w: ['cost', 'unknown'], a: [] },
+    { n: 'Do nothing \u2014 waiting is cheap here', p: 0.40, w: ['unknown', 'reversible'], a: ['deadline'] },
+  ];
+  document.getElementById('ogo').addEventListener('click', () => {
+    const s = document.getElementById('oq').value.toLowerCase();
+    const found = CUES.filter(([, ws]) => ws.some(w => s.includes(w))).map(([id]) => id);
+    const ranked = STANCES.map(st => ({
+      ...st,
+      score: Math.max(0, Math.min(1, st.p + st.w.filter(x => found.includes(x)).length * 0.12 - st.a.filter(x => found.includes(x)).length * 0.15)),
+    })).sort((x, y) => y.score - x.score);
+    const out = document.getElementById('oout');
+    out.innerHTML = (found.length ? '<p>signals: <b>' + found.join(', ') + '</b></p>'
+      : '<p class="quiet">no signals found \u2014 ranked by stated defaults only; say more about what is at stake</p>')
+      + ranked.slice(0, 3).map(r => '<p><b>' + r.n + '</b> \u00b7 ' + r.score.toFixed(2) + '</p>').join('');
+  });
+})();
+(() => {
+  const K = 'studio-notes';
+  const nb = document.getElementById('nb'), st = document.getElementById('nstat');
+  try { nb.value = localStorage.getItem(K) || ''; } catch {}
+  nb.addEventListener('input', () => {
+    try { localStorage.setItem(K, nb.value); st.textContent = 'kept \u00b7 ' + nb.value.length + ' characters, on your machine'; }
+    catch { st.textContent = 'private mode \u2014 nothing persists, and that is your call'; }
+  });
+})();
+(() => {
+  const K = 'studio-receipts';
+  const load2 = () => { try { return JSON.parse(localStorage.getItem(K) || '[]'); } catch { return []; } };
+  const keep = (items) => { try { localStorage.setItem(K, JSON.stringify(items)); } catch {} };
+  const escR = (x) => String(x).replace(/[<>&]/g, '');
+  function show() {
+    const items = load2();
+    document.getElementById('rlist').innerHTML = items.map((it, i) =>
+      '<p>' + (it.proof ? '✓ <b>' + escR(it.name) + '</b> <span class="quiet">— proven by: ' + escR(it.proof) + '</span>'
+        : '○ <b>' + escR(it.name) + '</b> <button data-i="' + i + '" class="rprove" type="button">it is done — prove it</button>') + '</p>'
+    ).join('') || '<p class="quiet">nothing listed — and an empty list is honestly empty</p>';
+    for (const btn of document.querySelectorAll('.rprove')) btn.addEventListener('click', () => {
+      const why = prompt('What proves it? (a file, a number, a thing someone can check)');
+      if (!why || !why.trim()) { alert('no evidence, no tick — that is the whole point'); return; }
+      const items2 = load2(); items2[Number(btn.dataset.i)].proof = why.trim(); keep(items2); show();
+    });
+  }
+  document.getElementById('radd').addEventListener('click', () => {
+    const name = document.getElementById('rnew').value.trim();
+    if (!name) return;
+    const items = load2(); items.push({ name: name.slice(0, 80), proof: null }); keep(items);
+    document.getElementById('rnew').value = ''; show();
+  });
+  show();
+})();
+(() => {
+  // the forgeupgrade fold pattern, trimmed: 8 points at 137.50776405003785 degrees, kappa = 1/phi
+  const GA = 137.50776405003785, KAP = 0.6180339887498949, N = 8;
+  const cv = document.getElementById('fcv'), cx2 = cv.getContext('2d');
+  function draw2(t) {
+    cx2.clearRect(0, 0, 280, 280);
+    const R = 110 * (1 - 0.5 * t), hole = 110 * (0.15 + 0.35 * (1 - t)), twist = t * 360 * KAP;
+    cx2.strokeStyle = '#8a857a'; cx2.setLineDash([4, 4]);
+    cx2.beginPath(); cx2.arc(140, 140, hole, 0, 7); cx2.stroke();
+    cx2.setLineDash([]);
+    for (let i = 0; i < N; i++) {
+      const a = ((i * GA + twist) % 360) * Math.PI / 180;
+      const x = 140 + Math.cos(a) * R, y = 140 + Math.sin(a) * R;
+      const hx = 140 + Math.cos(a) * hole, hy = 140 + Math.sin(a) * hole;
+      cx2.strokeStyle = i % 2 === 0 ? '#d4a017' : '#7f9cc9';
+      cx2.setLineDash(i % 2 === 0 ? [] : [6, 4]);
+      cx2.beginPath(); cx2.moveTo(hx, hy); cx2.lineTo(x, y); cx2.stroke();
+      cx2.setLineDash([]);
+      cx2.fillStyle = i % 2 === 0 ? '#d4a017' : '#7f9cc9';
+      cx2.beginPath(); cx2.arc(x, y, 5, 0, 7); cx2.fill();
+    }
+    document.getElementById('fread').textContent =
+      (t < KAP ? 'possibility / flat' : 'actual / folded') + ' · twist ' + (t * 360 * KAP).toFixed(1) + '° · the center is a hole, never a crease';
+  }
+  document.getElementById('ft').addEventListener('input', (ev) => draw2(Number(ev.target.value)));
+  draw2(0);
+})();
+</script>
+</body></html>
